@@ -1,14 +1,9 @@
-import type { LoaderFunctionArgs, Session, SessionData } from "@remix-run/node";
+import type { LoaderFunctionArgs } from "@remix-run/node";
 import { redirect } from "@remix-run/node";
 import { createHmac, randomBytes } from "node:crypto";
-// is this needed?
 import { Buffer } from "node:buffer";
 
-import { nonceStorage } from "~/services/session.server";
-
-interface NonceSessionData extends SessionData {
-  nonce?: string | undefined;
-}
+import { nonceStorage, sessionStorage } from "~/services/session.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   // if the secret isn't set, might as well redirect now
@@ -54,18 +49,30 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       const nonce = params.get("nonce");
       const sessionNonce = nonceSession.get("nonce");
       if (sessionNonce && sessionNonce === nonce) {
-        console.log("authetication can begin");
+        const externalId = params.get("external_id");
+        const username = params.get("username");
+        const avatarUrl = params.get("avatar_url");
+        const trustLevel = params.get("trust_level");
+        const userSession = await sessionStorage.getSession();
+        userSession.set("externalId", externalId);
+        userSession.set("username", username);
+        userSession.set("avatarUrl", avatarUrl);
+        userSession.set("trustLevel", trustLevel);
+        const headers = new Headers();
+        headers.append(
+          "Set-Cookie",
+          await nonceStorage.destroySession(nonceSession)
+        );
+        headers.append(
+          "Set-Cookie",
+          await sessionStorage.commitSession(userSession)
+        );
+        return redirect("/", { headers });
       }
     }
-
-    return redirect("/", {
-      headers: {
-        "Set-Cookie": await nonceStorage.destroySession(nonceSession),
-      },
-    });
   }
 
-  // this should never get executed, but if it does, destroy the nonceSession
+  // if authentication fails, destroy the nonceSession so it can't be re-used
   return redirect("/", {
     headers: {
       "Set-Cookie": await nonceStorage.destroySession(nonceSession),
