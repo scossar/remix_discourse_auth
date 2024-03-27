@@ -1,10 +1,14 @@
-import type { LoaderFunctionArgs } from "@remix-run/node";
+import type { LoaderFunctionArgs, Session, SessionData } from "@remix-run/node";
 import { redirect } from "@remix-run/node";
 import { createHmac, randomBytes } from "node:crypto";
 // is this needed?
 import { Buffer } from "node:buffer";
 
 import { nonceStorage } from "~/services/session.server";
+
+interface NonceSessionData extends SessionData {
+  nonce?: string | undefined;
+}
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   // if the secret isn't set, might as well redirect now
@@ -42,11 +46,16 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   }
 
   if (sso && sig) {
-    const computedSig = createHmac("sha256", secret).update(sso).digest("hex");
-    const computedSigBytes = Buffer.from(computedSig, "hex");
+    const computedSig = createHmac("sha256", secret).update(sso).digest();
     const receivedSigBytes = Buffer.from(sig, "hex");
-    if (computedSigBytes.equals(receivedSigBytes)) {
-      console.log("the computed signature matches the received signature");
+    if (computedSig.equals(receivedSigBytes)) {
+      const decodedPayload = Buffer.from(sso, "base64").toString("utf-8");
+      const params = new URLSearchParams(decodedPayload);
+      const nonce = params.get("nonce");
+      const sessionNonce = nonceSession.get("nonce");
+      if (sessionNonce && sessionNonce === nonce) {
+        console.log("authetication can begin");
+      }
     }
 
     return redirect("/", {
