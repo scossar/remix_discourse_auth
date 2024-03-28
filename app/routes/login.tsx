@@ -10,6 +10,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   if (!process.env.DISCOURSE_SSO_SECRET) {
     return redirect("/");
   }
+
   const secret = process.env.DISCOURSE_SSO_SECRET;
   const url = new URL(request.url);
   const sso = url.searchParams.get("sso");
