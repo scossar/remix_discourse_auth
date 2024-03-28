@@ -30,14 +30,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const externalId = userSession.get("externalId");
   const avatarUrl = userSession.get("avatarUrl");
 
-  return json(
-    { user: { externalId: externalId, avatarUrl: avatarUrl } },
-    {
-      headers: {
-        "Set-Cookie": await sessionStorage.commitSession(userSession),
-      },
-    }
-  );
+  return json({ user: { externalId: externalId, avatarUrl: avatarUrl } });
 };
 
 export function Layout({ children }: { children: React.ReactNode }) {
@@ -61,7 +54,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
 export default function App() {
   const { user }: User = useLoaderData<typeof loader>();
   return (
-    <div className="bg-cyan-900 h-screen text-slate-50">
+    <div className="bg-cyan-900 min-h-screen text-slate-50">
       <Header user={user} />
       <Outlet />
     </div>
