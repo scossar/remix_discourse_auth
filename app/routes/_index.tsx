@@ -13,9 +13,12 @@ export default function Index() {
     <div className="p-3">
       <h1 className="text-3xl">Discourse Auth Test</h1>
       <div className="flex flex-col">
-        <Link to="/login">Login through Discourse</Link>
-        <Link to="/login?sso=foo&sig=bar">
+        <Link className="py-3" to="/login">
+          Login through Discourse (/login)
+        </Link>
+        <Link className="py-3" to="/login?sso=foo&sig=bar">
           Visiting this link will destroy the nonce session
+          (/login?sso=foo&sig=bar)
         </Link>
       </div>
     </div>

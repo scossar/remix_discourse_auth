@@ -1,10 +1,10 @@
 import { createCookieSessionStorage } from "@remix-run/node";
 
-if (!process.env.NONCE_SECRET || !process.env.SESSION_SECRET) {
-  throw new Error("Required cookie secret variable not set");
+if (!process.env.NONCE_SECRET || !process.env.DISCOURSE_SESSION_SECRET) {
+  throw new Error("Required cookie secret not set");
 }
 const nonceSecret: string = process.env.NONCE_SECRET;
-const sessionSecret: string = process.env.SESSION_SECRET;
+const discourseSessionSecret: string = process.env.DISCOURSE_SESSION_SECRET;
 
 export const nonceStorage = createCookieSessionStorage({
   cookie: {
@@ -14,17 +14,17 @@ export const nonceStorage = createCookieSessionStorage({
     httpOnly: true,
     secrets: [nonceSecret],
     secure: process.env.NODE_ENV === "production",
-    maxAge: 60 * 10, // the Discourse nonce is valid for 10 minutes, match that for now
+    maxAge: 60 * 10, // 10 minutes for now, could probably be reduced
   },
 });
 
-export const sessionStorage = createCookieSessionStorage({
+export const discourseSessionStorage = createCookieSessionStorage({
   cookie: {
     name: "_session",
     sameSite: "lax",
     path: "/",
     httpOnly: true,
-    secrets: [sessionSecret],
+    secrets: [discourseSessionSecret],
     secure: process.env.NODE_ENV === "production",
     maxAge: 60 * 60 * 48, // set to two days for now
   },

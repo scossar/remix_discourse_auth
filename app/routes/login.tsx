@@ -1,22 +1,24 @@
 import type { LoaderFunctionArgs } from "@remix-run/node";
 import { redirect } from "@remix-run/node";
-import { createHmac, randomBytes } from "node:crypto";
-import { Buffer } from "node:buffer";
+import { isRouteErrorResponse, useRouteError } from "@remix-run/react";
 
-import { nonceStorage, sessionStorage } from "~/services/session.server";
+import { createHmac, randomBytes } from "node:crypto";
+
+import {
+  nonceStorage,
+  discourseSessionStorage,
+} from "~/services/session.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  // if the secret isn't set, might as well redirect now
-  if (!process.env.DISCOURSE_SSO_SECRET) {
-    return redirect("/");
+  if (!process.env.DISCOURSE_SSO_SECRET || !process.env.DISCOURSE_BASE_URL) {
+    return redirect("/"); // todo: this should be configurable
   }
 
   const secret = process.env.DISCOURSE_SSO_SECRET;
   const url = new URL(request.url);
   const sso = url.searchParams.get("sso");
   const sig = url.searchParams.get("sig");
-  // the nonceSession will be set and committed if the auth flow is being initiated,
-  // other wise it will be destroyed.
+
   const nonceSession = await nonceStorage.getSession(
     request.headers.get("Cookie")
   );
@@ -26,15 +28,15 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     const ssoPayload = `nonce=${nonce}&return_sso_url=http://localhost:5173/login`;
     const base64EncodedPayload = Buffer.from(ssoPayload).toString("base64");
     const urlEncodedPayload = encodeURIComponent(base64EncodedPayload);
-
     const signature = createHmac("sha256", secret)
       .update(base64EncodedPayload)
       .digest("hex");
-
-    const discourseUrl = `http://localhost:4200/session/sso_provider?sso=${urlEncodedPayload}&sig=${signature}`;
+    const discourseBaseUrl = process.env.DISCOURSE_BASE_URL;
+    const discourseConnectUrl = `${discourseBaseUrl}/session/sso_provider?sso=${urlEncodedPayload}&sig=${signature}`;
 
     nonceSession.set("nonce", nonce);
-    return redirect(discourseUrl, {
+
+    return redirect(discourseConnectUrl, {
       headers: {
         "Set-Cookie": await nonceStorage.commitSession(nonceSession),
       },
@@ -50,15 +52,34 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       const nonce = params.get("nonce");
       const sessionNonce = nonceSession.get("nonce");
       if (sessionNonce && sessionNonce === nonce) {
-        const externalId = params.get("external_id");
-        const username = params.get("username");
-        const avatarUrl = params.get("avatar_url");
-        const trustLevel = params.get("trust_level");
-        const userSession = await sessionStorage.getSession();
-        userSession.set("externalId", externalId);
-        userSession.set("username", username);
-        userSession.set("avatarUrl", avatarUrl);
-        userSession.set("trustLevel", trustLevel);
+        const userSession = await discourseSessionStorage.getSession();
+        /**
+         * params that are always in the payload:
+         * name: string
+         * username: string
+         * email: string
+         * external_id: number (the Discourse user ID)
+         * admin: boolean
+         * moderator: boolean
+         * groups: string (comma separated list)
+         *
+         * params that may be in the payload:
+         * avatar_url: string
+         * profile_background_url: string
+         * card_background_url: string
+         */
+        const sessionParams = new Set([
+          "external_id", // the user's Discourse ID
+          "username",
+          "avatar_url",
+          "groups", // comma separated list of group names
+        ]);
+
+        for (const [key, value] of params) {
+          if (sessionParams.has(key)) {
+            userSession.set(key, value);
+          }
+        }
         const headers = new Headers();
         headers.append(
           "Set-Cookie",
@@ -66,17 +87,49 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         );
         headers.append(
           "Set-Cookie",
-          await sessionStorage.commitSession(userSession)
+          await discourseSessionStorage.commitSession(userSession)
         );
         return redirect("/", { headers });
       }
     }
   }
 
-  // if authentication fails, destroy the nonceSession so it can't be re-used
-  return redirect("/", {
-    headers: {
-      "Set-Cookie": await nonceStorage.destroySession(nonceSession),
-    },
+  throw new Response("Login Error", {
+    status: 400,
+    statusText:
+      "Something has gone wrong while logging you into the site. Please contact the site's if the problem continues.",
+    headers: { "Set-Cookie": await nonceStorage.destroySession(nonceSession) },
   });
 };
+
+// Something has gone _very_ wrong if this component is rendered
+// it's included so that an ErrorBoundary can be used.
+export default function Login() {
+  return (
+    <div>
+      <h1>Something has gone wrong</h1>
+      <p>Something has gone wrong while attempting to log you into the site.</p>
+    </div>
+  );
+}
+
+export function ErrorBoundary() {
+  const error = useRouteError();
+  if (isRouteErrorResponse(error) && error?.statusText) {
+    const errorMessage = error?.statusText;
+
+    return (
+      <div>
+        <h1>Login Error</h1>
+        <p>{errorMessage}</p>
+      </div>
+    );
+  } else {
+    return (
+      <div>
+        <h1>Login Error</h1>
+        <p>Something has gone wrong.</p>
+      </div>
+    );
+  }
+}
