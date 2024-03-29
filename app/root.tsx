@@ -23,12 +23,12 @@ import Header from "~/components/Header";
 import styles from "./tailwind.css?url";
 export const links: LinksFunction = () => [{ rel: "stylesheet", href: styles }];
 
-/*export const loader = async ({ request }: LoaderFunctionArgs) => {
+export const loader = async ({ request }: LoaderFunctionArgs) => {
   const userSession = await discourseSessionStorage.getSession(
     request.headers.get("Cookie")
   );
-  const externalId = userSession.get("externalId");
-  const avatarUrl = userSession.get("avatarUrl");
+  const externalId = userSession.get("external_id");
+  const avatarUrl = userSession.get("avatar_url");
 
   return json(
     { user: { externalId: externalId, avatarUrl: avatarUrl } },
@@ -38,7 +38,7 @@ export const links: LinksFunction = () => [{ rel: "stylesheet", href: styles }];
       },
     }
   );
-};*/
+};
 
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
@@ -59,8 +59,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
+  const { user } = useLoaderData<typeof loader>();
   return (
     <div className="bg-cyan-900 h-screen text-slate-50">
+      <Header user={user} />
       <Outlet />
     </div>
   );

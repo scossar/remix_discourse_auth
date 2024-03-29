@@ -33,7 +33,6 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       .digest("hex");
     const discourseBaseUrl = process.env.DISCOURSE_BASE_URL;
     const discourseConnectUrl = `${discourseBaseUrl}/session/sso_provider?sso=${urlEncodedPayload}&sig=${signature}`;
-
     nonceSession.set("nonce", nonce);
 
     return redirect(discourseConnectUrl, {
@@ -46,77 +45,100 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   if (sso && sig) {
     const computedSig = createHmac("sha256", secret).update(sso).digest();
     const receivedSigBytes = Buffer.from(sig, "hex");
-    if (computedSig.equals(receivedSigBytes)) {
-      const decodedPayload = Buffer.from(sso, "base64").toString("utf-8");
-      const params = new URLSearchParams(decodedPayload);
-      const nonce = params.get("nonce");
-      const sessionNonce = nonceSession.get("nonce");
-      if (sessionNonce && sessionNonce === nonce) {
-        const userSession = await discourseSessionStorage.getSession();
-        /**
-         * params that are always in the payload:
-         * name: string
-         * username: string
-         * email: string
-         * external_id: number (the Discourse user ID)
-         * admin: boolean
-         * moderator: boolean
-         * groups: string (comma separated list)
-         *
-         * params that may be in the payload:
-         * avatar_url: string
-         * profile_background_url: string
-         * card_background_url: string
-         */
-        const sessionParams = new Set([
-          "external_id", // the user's Discourse ID
-          "username",
-          "avatar_url",
-          "groups", // comma separated list of group names
-        ]);
-
-        for (const [key, value] of params) {
-          if (sessionParams.has(key)) {
-            userSession.set(key, value);
-          }
+    if (!computedSig.equals(receivedSigBytes)) {
+      console.error(
+        `Signature mismatch detected at ${new Date().toISOString()}`
+      );
+      throw new Response(
+        "There was an error during the login process. Please try again. If the error persists, contact a site administrator",
+        {
+          status: 400,
+          headers: {
+            "Set-Cookie": await nonceStorage.destroySession(nonceSession),
+          },
         }
-        const headers = new Headers();
-        headers.append(
-          "Set-Cookie",
-          await nonceStorage.destroySession(nonceSession)
-        );
-        headers.append(
-          "Set-Cookie",
-          await discourseSessionStorage.commitSession(userSession)
-        );
-        return redirect("/", { headers });
+      );
+    }
+    const decodedPayload = Buffer.from(sso, "base64").toString("utf-8");
+    const params = new URLSearchParams(decodedPayload);
+    const nonce = params.get("nonce");
+    const sessionNonce = nonceSession.get("nonce");
+    if (!(sessionNonce && sessionNonce === nonce)) {
+      console.error(`Nonce mismatch detected at ${new Date().toISOString()}`);
+      throw new Response(
+        "There was an error during the login process. Please try again. If the error persists, contact a site administrator",
+        {
+          status: 400,
+          headers: {
+            "Set-Cookie": await nonceStorage.destroySession(nonceSession),
+          },
+        }
+      );
+    }
+
+    const userSession = await discourseSessionStorage.getSession();
+    /**
+     * params that are always in the payload:
+     * name: string
+     * username: string
+     * email: string
+     * external_id: number (the Discourse user ID)
+     * admin: boolean
+     * moderator: boolean
+     * groups: string (comma separated list)
+     *
+     * params that may be in the payload:
+     * avatar_url: string
+     * profile_background_url: string
+     * card_background_url: string
+     */
+    const sessionParams = new Set([
+      "external_id", // the user's Discourse ID
+      "username",
+      "avatar_url",
+      "groups", // comma separated list of group names
+    ]);
+
+    for (const [key, value] of params) {
+      if (sessionParams.has(key)) {
+        userSession.set(key, value);
       }
     }
+    const headers = new Headers();
+    headers.append(
+      "Set-Cookie",
+      await nonceStorage.destroySession(nonceSession)
+    );
+    headers.append(
+      "Set-Cookie",
+      await discourseSessionStorage.commitSession(userSession)
+    );
+    return redirect("/", { headers });
   }
 
   throw new Response("Login Error", {
     status: 400,
-    statusText:
-      "Something has gone wrong while logging you into the site. Please contact the site's if the problem continues.",
     headers: { "Set-Cookie": await nonceStorage.destroySession(nonceSession) },
   });
 };
 
-// Something has gone _very_ wrong if this component is rendered
-// it's included so that an ErrorBoundary can be used.
+// this should never get rendered
 export default function Login() {
   return (
     <div>
       <h1>Something has gone wrong</h1>
-      <p>Something has gone wrong while attempting to log you into the site.</p>
+      <p>
+        There was an error during the login process. Please try again. If the
+        error persists, contact a site administrator.
+      </p>
     </div>
   );
 }
 
 export function ErrorBoundary() {
   const error = useRouteError();
-  if (isRouteErrorResponse(error) && error?.statusText) {
-    const errorMessage = error?.statusText;
+  if (isRouteErrorResponse(error) && error?.data) {
+    const errorMessage = error?.data;
 
     return (
       <div>
